@@ -42,7 +42,10 @@ def verify(executable, architecture, output):
         def run(*args):
             result = subprocess.run([str(executable), *args], cwd=directory,
                                     capture_output=True, text=True,
-                                    encoding="utf-8", timeout=90, check=True)
+                                    encoding="utf-8", errors="replace", timeout=90)
+            if result.returncode:
+                raise RuntimeError(f"Pandoc exited {result.returncode}: {args!r}\n"
+                                   f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}")
             return result.stdout
 
         report["version"] = run("--version").splitlines()[0]
@@ -73,9 +76,19 @@ def verify(executable, architecture, output):
         lua.write_text('function Str(el)\n'
                        '  if el.text == "ARM64" then el.text = "Lua_OK" end\n'
                        '  return el\nend\n', encoding="utf-8")
-        filtered = run(str(markdown), "-t", "plain", "--lua-filter", str(lua))
+        filtered = run(str(markdown), "-t", "plain", "--lua-filter", lua.name)
         assert "Lua_OK" in filtered
         report["checks"].append("Lua filter and Haskell/C FFI")
+        # Lua's narrow fopen path is locale-dependent in the existing Windows
+        # release. Record this separately from the required FFI smoke test.
+        probe = subprocess.run(
+            [str(executable), str(markdown), "-t", "plain", "--lua-filter", str(lua)],
+            cwd=directory, capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=90)
+        report["absolute_unicode_lua_path"] = {
+            "passed": probe.returncode == 0 and "Lua_OK" in probe.stdout,
+            "exit_code": probe.returncode, "stderr": probe.stderr,
+        }
 
         bibliography = directory / "refs.json"
         bibliography.write_text(json.dumps([{
