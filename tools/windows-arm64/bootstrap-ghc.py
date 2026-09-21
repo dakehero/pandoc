@@ -47,8 +47,8 @@ def main():
     if original.count(marker) != 1:
         raise RuntimeError("Pinned GHC CI dispatcher changed")
     ci.write_text(original.replace(marker, marker + '\n'
-        '  pandoc_target_probe) run_hadrian _build/stage2/bin/ghc.exe '
-        '_build/stage2/bin/ghc-pkg.exe ;;'))
+        '  pandoc_target_probe) run_hadrian stage3:exe:ghc '
+        'stage3:exe:ghc-pkg ;;'))
     for phase in ("setup", "configure", "pandoc_target_probe"):
         report["current_phase"] = phase
         report_path.write_text(json.dumps(report, indent=2) + "\n")
