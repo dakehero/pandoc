@@ -1,0 +1,101 @@
+name: Windows ARM64 native Pandoc validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      compiler-run:
+        description: Successful compiler bootstrap run in this fork
+        default: '35645086353'
+        required: true
+        type: string
+  push:
+    branches: [codex/windows-arm64-validation]
+    paths:
+      - '.github/workflows/windows-native-toolchain.yml'
+      - 'tools/windows-arm64/prepare-native-ghc.py'
+      - 'tools/windows-arm64/smoke/**'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  native-validation:
+    runs-on: windows-11-arm
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v7
+        with:
+          name: windows-arm64-ghc
+          path: toolchain-probe
+          run-id: ${{ inputs.compiler-run || '35645086353' }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Prepare native LLVM 19.1.7
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          curl.exe -fL --retry 3 https://github.com/mstorsjo/llvm-mingw/releases/download/20250114/llvm-mingw-20250114-ucrt-aarch64.zip -o llvm.zip
+          if ($LASTEXITCODE -ne 0) { throw 'LLVM download failed' }
+          if ((Get-FileHash -LiteralPath llvm.zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne '2e00fa1b17f46aef58d7bbdac65c7ceec716f39bc59e0c424b03d4083648c9dd') { throw 'LLVM checksum mismatch' }
+          Expand-Archive -LiteralPath llvm.zip -DestinationPath native-llvm
+      - name: Compile and execute native Haskell, Template Haskell and C FFI
+        shell: pwsh
+        run: |
+          python tools/windows-arm64/prepare-native-ghc.py toolchain-probe/ghc-target-stage-probe.tar.xz --llvm native-llvm/llvm-mingw-20250114-ucrt-aarch64 --output native-ghc
+          if ($LASTEXITCODE -ne 0) { throw 'Native compiler usability failed' }
+      - name: Solve, build and test Pandoc with the native compiler
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          curl.exe -fL --retry 3 https://downloads.haskell.org/~cabal/cabal-install-3.18.1.0/cabal-install-3.18.1.0-x86_64-mingw64.zip -o cabal.zip
+          if ($LASTEXITCODE -ne 0) { throw 'Cabal download failed' }
+          if ((Get-FileHash -LiteralPath cabal.zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne '37dec26f188ff0f3e89a004dcfccdb4fece8db40a9a8688960f5818841956c77') { throw 'Cabal checksum mismatch' }
+          Expand-Archive -LiteralPath cabal.zip -DestinationPath cabal-frontend
+          # The x64 Cabal frontend runs under emulation; compilation uses the
+          # explicitly selected ARM64 GHC, whose PE and runtime were checked above.
+          $env:CABAL_DIR = Join-Path $env:RUNNER_TEMP 'pandoc-native-cabal'
+          $env:PATH = (Join-Path $PWD 'native-llvm/llvm-mingw-20250114-ucrt-aarch64/bin') + ';' + $env:PATH
+          & ./cabal-frontend/cabal.exe update 2>&1 | Tee-Object -FilePath native-ghc/verification/cabal-update.log
+          if ($LASTEXITCODE -ne 0) { throw 'Cabal update failed' }
+          $buildOptions = @('--enable-tests', '--disable-optimization', '-fembed_data_files', '-flua', '-fhttp', "--with-compiler=$PWD/native-ghc/bin/ghc.exe", "--with-hc-pkg=$PWD/native-ghc/bin/ghc-pkg.exe")
+          & ./cabal-frontend/cabal.exe build all --dry-run @buildOptions 2>&1 | Tee-Object -FilePath native-ghc/verification/cabal-solve.log
+          if ($LASTEXITCODE -ne 0) { throw 'Native Pandoc dependency resolution failed' }
+          & ./cabal-frontend/cabal.exe build all @buildOptions 2>&1 | Tee-Object -FilePath native-ghc/verification/cabal-build.log
+          if ($LASTEXITCODE -ne 0) { throw 'Native Pandoc build failed' }
+          & ./cabal-frontend/cabal.exe test all @buildOptions 2>&1 | Tee-Object -FilePath native-ghc/verification/cabal-test.log
+          if ($LASTEXITCODE -ne 0) { throw 'Native Pandoc tests failed' }
+          $pandocExe = & ./cabal-frontend/cabal.exe list-bin exe:pandoc @buildOptions
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot locate native Pandoc' }
+          Copy-Item -LiteralPath $pandocExe.Trim() -Destination native-ghc/verification/pandoc.exe
+      - name: Validate actual ARM64 Pandoc runtime, ZIP and MSI
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          curl.exe -fL --retry 3 https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip -o wix.zip
+          if ($LASTEXITCODE -ne 0) { throw 'WiX download failed' }
+          if ((Get-FileHash -LiteralPath wix.zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne '6ac824e1642d6f7277d0ed7ea09411a508f6116ba6fae0aa5f2c7daa2ff43d31') { throw 'WiX checksum mismatch' }
+          Expand-Archive -LiteralPath wix.zip -DestinationPath wix
+          python tools/windows-arm64/package-pandoc.py native-ghc/verification/pandoc.exe --architecture arm64 --wix-bin wix --output package-results
+          if ($LASTEXITCODE -ne 0) { throw 'Native Pandoc runtime or packaging failed' }
+          $installers = @(Get-ChildItem -LiteralPath package-results -Filter '*.msi')
+          if ($installers.Count -ne 1) { throw 'Expected one ARM64 Pandoc MSI' }
+          ./tools/windows-arm64/verify-msi.ps1 -MsiPath $installers[0].FullName -Architecture arm64 -ReportDirectory package-results
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: windows-arm64-native-validation-diagnostics
+          path: |
+            native-ghc/verification
+            native-ghc/lib/settings
+            native-ghc/lib/targets/*.target
+            native-ghc/lib/package.conf.d/*.conf
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: windows-arm64-pandoc-package-diagnostics
+          path: package-results
+          if-no-files-found: ignore

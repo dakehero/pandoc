@@ -84,6 +84,34 @@ The workflow preserves build caches for subsequent diagnostic iterations and
 checks compiler executable startup on Windows ARM64 after a successful build.
 Startup alone does not establish compiler, Template Haskell or Pandoc usability.
 
+`windows-native-toolchain.yml` continues from a selected bootstrap artifact on
+`windows-11-arm`. It uses SHA-256-pinned native LLVM-MinGW 19.1.7, relocates the
+compiler settings, toolchain target records and package registrations, and
+recaches the package database. The probe first compiles and executes a basic
+Haskell program, then a program using Template Haskell and a C/Haskell callback.
+Each executable must have the ARM64 PE machine type. These are diagnostic
+checks; adding the workflow is not evidence that they passed.
+
+After the compiler checks succeed, the workflow uses the official Cabal 3.18.1.0
+x64 frontend under emulation with the explicitly selected native ARM64 GHC.
+It resolves dependencies without relaxing package bounds, builds and tests all
+project packages with Lua, embedded data and HTTP enabled, then runs the
+runtime, ZIP and MSI checks against the resulting ARM64 Pandoc. Failures stop
+later gates and retain the available logs. No system toolchain is installed on
+the local host by these scripts.
+
+To reproduce the compiler smoke on Windows ARM64, use a fresh output directory:
+
+```powershell
+python tools/windows-arm64/prepare-native-ghc.py ghc-target-stage-probe.tar.xz --llvm path/to/llvm-mingw-20250114-ucrt-aarch64 --output native-ghc
+```
+
+The archive is still an uninstalled compiler probe. The preparation script
+copies target-stage files and resolves internal file links without creating
+Windows symlinks; it rejects traversal, external links and link cycles. The
+resulting compiler directory is for this pinned experiment, not a release GHC
+distribution.
+
 The current experiment follows the native-compiler route. A Linux-hosted cross
 compiler is another possible route, but the upstream cross CI smoke runs only
 a small Haskell program under Wine; it does not prove that Pandoc's Template
