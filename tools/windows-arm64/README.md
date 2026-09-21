@@ -71,12 +71,19 @@ The current probe instead asks Hadrian for `stage3:exe:ghc` and
 phase and exit code in `arm64-bootstrap.json`. Any resulting target-stage
 archive is diagnostic output, **not an installed/relocatable GHC distribution**.
 
-Before adding ARM64 to the release workflow, all of these gates must pass:
+The current experiment follows the native-compiler route. A Linux-hosted cross
+compiler is another possible route, but the upstream cross CI smoke runs only
+a small Haskell program under Wine; it does not prove that Pandoc's Template
+Haskell, build tools, Lua and C dependencies can be cross-built.
 
-1. Build a Windows-hosted GHC and prepare a usable native C/linker toolchain,
-   settings, package database, and compiler distribution.
-2. On Windows ARM64, verify PE architecture, compiler execution, compilation
-   and execution of a Haskell program, Template Haskell and C FFI.
+Before adding ARM64 to the release workflow, these gates must pass:
+
+1. Establish a usable compiler/toolchain route: either a Windows-hosted GHC with
+   native C/linker tools, settings, package database and distribution, or a
+   cross compiler with working build-time Haskell execution.
+2. Verify compilation and native execution of a Haskell program, Template
+   Haskell and C FFI; for the native route also verify the compiler PE machine
+   and execution on Windows ARM64.
 3. Solve and build Pandoc and its dependencies with embedded data and Lua
    enabled, then run the project's relevant test suites on Windows ARM64.
 4. Run the same runtime, ZIP, and MSI checks against that real ARM64 executable.
