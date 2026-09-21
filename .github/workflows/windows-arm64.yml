@@ -6,7 +6,7 @@ on:
     branches: [codex/windows-arm64-validation]
     paths:
       - '.github/workflows/windows-arm64.yml'
-      - 'tools/windows-arm64/**'
+      - 'tools/windows-arm64/bootstrap-ghc.py'
 
 permissions:
   contents: read

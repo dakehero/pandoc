@@ -1,0 +1,48 @@
+name: Windows package validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/windows-arm64-validation]
+    paths:
+      - '.github/workflows/windows-package-validation.yml'
+      - 'tools/windows-arm64/verify-pandoc.py'
+      - 'tools/windows-arm64/package-pandoc.py'
+      - 'tools/windows-arm64/verify-msi.ps1'
+      - 'windows/**'
+
+permissions:
+  contents: read
+
+jobs:
+  x64-baseline:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Download and verify the official x64 baseline
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Invoke-WebRequest 'https://github.com/jgm/pandoc/releases/download/3.11/pandoc-3.11-windows-x86_64.zip' -OutFile baseline.zip
+          if ((Get-FileHash baseline.zip -Algorithm SHA256).Hash -ne '2ab72baf2399450e148ddf7a2a8689806c42e1bba71862b57e220fd9b8456d3d') {
+            throw 'Official release checksum mismatch'
+          }
+          Expand-Archive baseline.zip baseline
+      - name: Validate runtime and package MSI and ZIP
+        shell: pwsh
+        run: |
+          python tools/windows-arm64/package-pandoc.py baseline/pandoc-3.11/pandoc.exe --architecture x64 --wix-bin 'C:/Program Files (x86)/WiX Toolset v3.14/bin' --output package-results
+          if ($LASTEXITCODE -ne 0) { throw 'Package validation failed' }
+      - name: Install, verify, and uninstall MSI on the disposable runner
+        shell: pwsh
+        run: |
+          ./tools/windows-arm64/verify-msi.ps1 -MsiPath package-results/pandoc-3.11-windows-x86_64.msi -Architecture x64 -ReportDirectory package-results
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: windows-x64-package-validation
+          path: package-results
+          if-no-files-found: error
