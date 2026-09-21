@@ -57,7 +57,7 @@ jobs:
           # The x64 Cabal frontend runs under emulation; compilation uses the
           # explicitly selected ARM64 GHC, whose PE and runtime were checked above.
           $env:CABAL_DIR = Join-Path $env:RUNNER_TEMP 'pandoc-native-cabal'
-          $env:PATH = (Join-Path $PWD 'native-llvm/llvm-mingw-20250114-ucrt-aarch64/bin') + ';' + $env:PATH
+          $env:PATH = (Join-Path $PWD 'native-ghc/bin') + ';' + (Join-Path $PWD 'native-ghc/mingw/bin') + ';' + $env:PATH
           & ./cabal-frontend/cabal.exe update 2>&1 | Tee-Object -FilePath native-ghc/verification/cabal-update.log
           if ($LASTEXITCODE -ne 0) { throw 'Cabal update failed' }
           $buildOptions = @('--enable-tests', '--disable-optimization', '-fembed_data_files', '-flua', '-fhttp', "--with-compiler=$PWD/native-ghc/bin/ghc.exe", "--with-hc-pkg=$PWD/native-ghc/bin/ghc-pkg.exe")

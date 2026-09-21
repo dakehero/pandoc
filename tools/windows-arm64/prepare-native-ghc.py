@@ -62,6 +62,10 @@ def main():
     output = args.output.resolve()
     llvm = args.llvm.resolve(strict=True)
     extract_compiler(args.archive, output)
+    # GHC's Windows findToolDir requires a sibling mingw directory even when
+    # every compiler/linker path in the target record is already absolute.
+    shutil.copytree(llvm, output / "mingw")
+    llvm = output / "mingw"
     reports = output / "verification"
     reports.mkdir()
     settings_path = output / "lib/settings"
@@ -74,6 +78,10 @@ def main():
 
     def native_tool(match):
         name = match[1]
+        # The prefixed ld shipped by LLVM-MinGW is a POSIX shell wrapper.
+        # Clang already supplies the ARM64 PE emulation when invoking ld.lld.
+        if name == "aarch64-w64-mingw32-ld":
+            name = "ld.lld"
         tool = llvm / "bin" / (name if name.endswith(".exe") else name + ".exe")
         if not tool.is_file():
             missing_tools.append(str(tool))
@@ -82,6 +90,8 @@ def main():
     def relocate(value):
         value = re.sub(r"/opt/llvm-mingw-linux/bin/([A-Za-z0-9+_.-]+)", native_tool, value)
         value = value.replace("/opt/llvm-mingw-linux", llvm.as_posix())
+        value = value.replace('"llvm-dlltool-19"',
+                              json.dumps((llvm / "bin/llvm-dlltool.exe").as_posix()))
         value = re.sub(r'/__w/[^ "\n]*/_build/stage2', lambda _: output.as_posix(), value)
         return value.replace("_build/stage2", output.as_posix())
 
@@ -96,7 +106,11 @@ def main():
     # rather than in the older settings format. Preserve the target properties
     # while replacing only paths to the corresponding native LLVM programs.
     for path in (output / "lib/targets").glob("*.target"):
-        path.write_text(relocate(path.read_text(encoding="utf-8")), encoding="utf-8")
+        content = relocate(path.read_text(encoding="utf-8"))
+        # Unlike the Linux cross-build host, this Windows host can execute the
+        # Windows ARM64 target. GHC exposes this field as "cross compiling".
+        content = content.replace("tgtLocallyExecutable = False", "tgtLocallyExecutable = True")
+        path.write_text(content, encoding="utf-8")
     for path in package_db.glob("*.conf"):
         path.write_text(relocate(path.read_text(encoding="utf-8")), encoding="utf-8")
     environment = os.environ.copy()
@@ -116,7 +130,8 @@ def main():
                   "stdout": result.stdout, "stderr": result.stderr}
         report["commands"].append(record)
         (reports / "compiler-smoke.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
-        print(json.dumps(record))
+        print(json.dumps({key: value[:4000] if isinstance(value, str) else value
+                          for key, value in record.items()}), flush=True)
         if result.returncode:
             raise RuntimeError(f"Compiler test command failed: {command}")
         return result.stdout
@@ -143,8 +158,16 @@ def main():
     if verification.pe_machine(executable) != 0xAA64:
         raise ValueError("GHC did not produce a native ARM64 executable")
     result = run(executable)
-    if "Native GHC compilation, Template Haskell and C FFI passed" not in result:
+    if "Native C and Haskell callback passed" not in result:
         raise RuntimeError("Unexpected compiler smoke output")
+    template_exe = reports / "template-haskell.exe"
+    run(compiler, f"-B{output / 'lib'}", "-fforce-recomp",
+        "-odir", reports, "-hidir", reports,
+        smoke / "TemplateHaskell.hs", "-o", template_exe)
+    if verification.pe_machine(template_exe) != 0xAA64:
+        raise ValueError("Template Haskell did not produce an ARM64 executable")
+    if "Native Template Haskell passed" not in run(template_exe):
+        raise RuntimeError("Unexpected Template Haskell smoke output")
 
 
 if __name__ == "__main__":

@@ -83,12 +83,19 @@ Windows target extension and uses `programPath` for program lookup as well.
 The workflow preserves build caches for subsequent diagnostic iterations and
 checks compiler executable startup on Windows ARM64 after a successful build.
 Startup alone does not establish compiler, Template Haskell or Pandoc usability.
+[Run 35645086353](https://github.com/dakehero/pandoc/actions/runs/35645086353)
+passed both target compilation and native executable startup. Both executables
+have PE machine `0xAA64` and report GHC `10.1.20260917`. The preserved compiler
+build cache is available for further experiments.
 
 `windows-native-toolchain.yml` continues from a selected bootstrap artifact on
 `windows-11-arm`. It uses SHA-256-pinned native LLVM-MinGW 19.1.7, relocates the
 compiler settings, toolchain target records and package registrations, and
-recaches the package database. The probe first compiles and executes a basic
-Haskell program, then a program using Template Haskell and a C/Haskell callback.
+recaches the package database. LLVM is copied into the sibling `mingw` directory
+required by GHC's Windows toolchain discovery. The Linux prefixed `ld` shell
+wrapper is replaced with native `ld.lld.exe`, and the target is marked locally
+executable on the Windows ARM64 host. The probe separately compiles and executes
+a basic Haskell program, a C/Haskell callback, and a Template Haskell splice.
 Each executable must have the ARM64 PE machine type. These are diagnostic
 checks; adding the workflow is not evidence that they passed.
 
@@ -111,6 +118,37 @@ copies target-stage files and resolves internal file links without creating
 Windows symlinks; it rejects traversal, external links and link cycles. The
 resulting compiler directory is for this pinned experiment, not a release GHC
 distribution.
+
+### Native compiler results and runtime linker blocker
+
+Local Windows ARM64 testing with the compiler from run `35645086353` and the
+prepared LLVM layout passed package-database recaching, `ghc --info`, native
+Haskell compilation/execution, and a C function invoking a Haskell callback.
+The generated executables were checked for ARM64 PE headers before execution.
+
+The separate Template Haskell test fails with exit code 11 after repeated
+`PE/PE+ not supported on ARM64.` messages and an access violation. This is not
+an installer or PATH problem: the pinned GHC
+[`rts/linker/PEi386.c`](https://github.com/ghc/ghc/blob/5236634abce50db7e8e7ecf375def90bf45d2476/rts/linker/PEi386.c#L2349)
+has only a placeholder in its ARM64 relocation branch. The existing native
+code generator and static C/Haskell FFI work, but this does not establish
+runtime object loading, GHCi or Template Haskell support.
+
+The native workflow deliberately fails this gate and retains the diagnostic
+report; later Pandoc build/package steps are not counted as passing or skipped
+silently. Completing this route requires GHC runtime linker development and
+validation, plus native build helpers such as `unlit` and `hsc2hs`. The LLVM
+backend is also unverified; the successful native compilation uses GHC's native
+code generator.
+
+An independent local `cabal build all --dry-run --enable-tests
+--disable-optimization -fembed_data_files -flua -fhttp` with the explicitly
+selected native compiler also failed dependency resolution. At Hackage index
+state `2026-09-21T20:25:14Z`, GHC's bundled `base-4.23.0.0` conflicts with
+`vector-0.13.2.0` and `0.13.1.0`, which require `base < 4.23`; the selected
+`aeson` requires `vector ^>= 0.13.0.0`. This is the first observed solver
+blocker, not an exhaustive list of dependency compatibility problems. No
+`allow-newer` overrides or production dependency changes were made.
 
 The current experiment follows the native-compiler route. A Linux-hosted cross
 compiler is another possible route, but the upstream cross CI smoke runs only
