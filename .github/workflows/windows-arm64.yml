@@ -1,0 +1,51 @@
+name: Windows ARM64 validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/windows-arm64-validation]
+    paths:
+      - '.github/workflows/windows-arm64.yml'
+      - 'tools/windows-arm64/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-arm64-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 360
+    container:
+      image: registry.gitlab.haskell.org/ghc/ci-images/aarch64-linux-deb12-wine:5df428b97c501f61f57587048d4bd15eba53e364
+      options: --user root
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: ghc/ghc
+          ref: 5236634abce50db7e8e7ecf375def90bf45d2476
+          path: ghc-source
+          submodules: recursive
+          persist-credentials: false
+      - name: Build Windows ARM64 GHC from the upstream cross toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/windows-arm64/bootstrap-ghc.py ghc-source
+      - name: Preserve toolchain and build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-arm64-ghc
+          path: |
+            ghc-source/ghc-windows-arm64.tar.xz
+            ghc-source/config.log
+            ghc-source/ci_timings.txt
+            ghc-source/arm64-bootstrap.json
+          if-no-files-found: error
