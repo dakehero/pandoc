@@ -33,7 +33,7 @@ jobs:
           path: ghc-source
           submodules: recursive
           persist-credentials: false
-      - name: Build Windows ARM64 GHC from the upstream cross toolchain
+      - name: Probe native Windows ARM64 GHC compilation
         shell: bash
         run: |
           set -euo pipefail
@@ -44,7 +44,7 @@ jobs:
         with:
           name: windows-arm64-ghc
           path: |
-            ghc-source/ghc-windows-arm64.tar.xz
+            ghc-source/ghc-target-stage-probe.tar.xz
             ghc-source/config.log
             ghc-source/ci_timings.txt
             ghc-source/arm64-bootstrap.json
