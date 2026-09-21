@@ -1,0 +1,13 @@
+--- a/hadrian/src/Rules/BinaryDist.hs
++++ b/hadrian/src/Rules/BinaryDist.hs
+@@ -345,6 +345,10 @@
+       buildBinDistDir root cfg
+ 
+     phony "binary-dist-dir-cross" $ buildBinDistDir root crossBindist
++    -- Probe native target executables without the unfinished target bindist.
++    phony "pandoc-native-compiler-probe" $ do
++      (_, binaries) <- bindistPackageTargets targetBindist
++      need [path | (pkg, path) <- binaries, pkg `elem` [ghc, ghcPkg]]
+     -- MP: Not working yet
+     -- phony "binary-dist-dir-stage3" $ buildBinDistDir root targetBindist
+ 

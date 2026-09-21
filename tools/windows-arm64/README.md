@@ -65,11 +65,14 @@ Enabling the commented rule alone is insufficient: that code also uses the
 build host for Windows wrappers and executes the packaged `ghc-pkg` on the
 build host.
 
-The current probe instead asks Hadrian for `stage3:exe:ghc` and
-`stage3:exe:ghc-pkg`. Hadrian resolves the actual stage2 program paths; hardcoded
-`.exe` targets are not valid on this Linux build host. It records the failed
-phase and exit code in `arm64-bootstrap.json`. Any resulting target-stage
-archive is diagnostic output, **not an installed/relocatable GHC distribution**.
+The current probe applies `ghc-native-probe.patch`, which uses Hadrian's
+`bindistPackageTargets targetBindist` to resolve the target compiler and package
+manager paths without building a bindist. Hardcoded `.exe` paths and stage3
+simple aliases are not valid entry points on this pinned Linux build host.
+The script records the patch checksum, failed phase and exit code in
+`arm64-bootstrap.json` and checks any resulting executables for ARM64 PE headers.
+Any target-stage archive is diagnostic output, **not an installed/relocatable
+GHC distribution**.
 
 The current experiment follows the native-compiler route. A Linux-hosted cross
 compiler is another possible route, but the upstream cross CI smoke runs only
