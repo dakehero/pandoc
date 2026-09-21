@@ -1,0 +1,95 @@
+name: Windows ARM64 validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/windows-arm64-validation]
+    paths:
+      - '.github/workflows/windows-arm64.yml'
+      - 'tools/windows-arm64/bootstrap-ghc.py'
+      - 'tools/windows-arm64/ghc-native-probe.patch'
+      - 'tools/windows-arm64/verify-ghc-startup.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-arm64-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 360
+    container:
+      image: registry.gitlab.haskell.org/ghc/ci-images/aarch64-linux-deb12-wine:5df428b97c501f61f57587048d4bd15eba53e364
+      options: --user root
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: ghc/ghc
+          ref: 5236634abce50db7e8e7ecf375def90bf45d2476
+          path: ghc-source
+          submodules: recursive
+          persist-credentials: false
+      - name: Restore compiler build cache
+        id: compiler-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ghc-source/_build
+            ghc-source/hadrian/dist-newstyle
+            ghc-source/dist-newstyle
+          key: ghc-native-probe-${{ runner.os }}-${{ runner.arch }}-5236634abce50db7e8e7ecf375def90bf45d2476-${{ github.run_id }}
+          restore-keys: ghc-native-probe-${{ runner.os }}-${{ runner.arch }}-5236634abce50db7e8e7ecf375def90bf45d2476-
+      - name: Probe native Windows ARM64 GHC compilation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/windows-arm64/bootstrap-ghc.py ghc-source
+      - name: Preserve toolchain and build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-arm64-ghc
+          path: |
+            ghc-source/ghc-target-stage-probe.tar.xz
+            ghc-source/config.log
+            ghc-source/ci_timings.txt
+            ghc-source/arm64-bootstrap.json
+          if-no-files-found: error
+      - name: Preserve compiler work for the next diagnostic iteration
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ghc-source/_build
+            ghc-source/hadrian/dist-newstyle
+            ghc-source/dist-newstyle
+          key: ${{ steps.compiler-cache.outputs.cache-primary-key }}
+
+  native-startup:
+    needs: bootstrap
+    runs-on: windows-11-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v7
+        with:
+          name: windows-arm64-ghc
+          path: toolchain-probe
+      - name: Verify ARM64 PE headers and native compiler startup
+        shell: pwsh
+        run: |
+          python tools/windows-arm64/verify-ghc-startup.py toolchain-probe/ghc-target-stage-probe.tar.xz native-startup-results
+          if ($LASTEXITCODE -ne 0) { throw 'Native GHC startup failed' }
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: windows-arm64-ghc-startup-not-pandoc
+          path: native-startup-results
