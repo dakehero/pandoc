@@ -2,7 +2,7 @@
 +++ b/hadrian/src/Rules/BinaryDist.hs
 @@ -345,6 +345,10 @@
        buildBinDistDir root cfg
- 
+
      phony "binary-dist-dir-cross" $ buildBinDistDir root crossBindist
 +    -- Probe native target executables without the unfinished target bindist.
 +    phony "pandoc-native-compiler-probe" $ do
@@ -10,4 +10,29 @@
 +      need [path | (pkg, path) <- binaries, pkg `elem` [ghc, ghcPkg]]
      -- MP: Not working yet
      -- phony "binary-dist-dir-stage3" $ buildBinDistDir root targetBindist
- 
+
+--- a/hadrian/src/Packages.hs
++++ b/hadrian/src/Packages.hs
+@@ -196,7 +196,8 @@
+ programPath context@Context {..} = do
+     name <- programName context
+     path <- stageBinPath stage
+-    return $ path -/- name <.> exe
++    winTarget <- isWinTarget stage
++    return $ path -/- name <.> (if winTarget then "exe" else exe)
+
+ -- TODO: Move @timeout@ to the @util@ directory and build in a more standard
+ -- location like other programs used only by the testsuite.
+--- a/hadrian/src/Rules/Program.hs
++++ b/hadrian/src/Rules/Program.hs
+@@ -54,8 +54,8 @@
+                  ++ tPackages
+   forM allPackages $ \pkg -> do
+     ctx <- programContext stage pkg -- TODO: see todo on programContext.
+-    name <- programName ctx
+-    return (name <.> exe, ctx)
++    path <- programPath ctx
++    return (takeFileName path, ctx)
+
+ lookupProgramContext :: FilePath -> [(FilePath, Context)] -> Maybe Context
+ lookupProgramContext wholePath progs = lookup (takeFileName wholePath) progs

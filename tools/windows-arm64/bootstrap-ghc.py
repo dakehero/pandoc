@@ -69,7 +69,7 @@ def main():
     verification = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(verification)
     report["executables"] = {}
-    for name in ("ghc", "ghc-pkg"):
+    for name in ("ghc.exe", "ghc-pkg.exe"):
         executable = source / "_build/stage2/bin" / name
         machine = verification.pe_machine(executable)
         if machine != 0xAA64:

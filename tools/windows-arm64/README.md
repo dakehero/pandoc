@@ -74,6 +74,16 @@ The script records the patch checksum, failed phase and exit code in
 Any target-stage archive is diagnostic output, **not an installed/relocatable
 GHC distribution**.
 
+[Run 35638337747](https://github.com/dakehero/pandoc/actions/runs/35638337747)
+reached native target library compilation and linked `ghc-pkg`, then failed with
+`rule finished running but did not produce file: _build/stage2/bin/ghc-pkg`.
+The Windows linker appends `.exe`, but Hadrian used the Linux host's extension
+when generating and matching program paths. The probe patch now selects the
+Windows target extension and uses `programPath` for program lookup as well.
+The workflow preserves build caches for subsequent diagnostic iterations and
+checks compiler executable startup on Windows ARM64 after a successful build.
+Startup alone does not establish compiler, Template Haskell or Pandoc usability.
+
 The current experiment follows the native-compiler route. A Linux-hosted cross
 compiler is another possible route, but the upstream cross CI smoke runs only
 a small Haskell program under Wine; it does not prove that Pandoc's Template
