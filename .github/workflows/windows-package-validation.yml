@@ -9,6 +9,7 @@ on:
       - 'tools/windows-arm64/verify-pandoc.py'
       - 'tools/windows-arm64/package-pandoc.py'
       - 'tools/windows-arm64/verify-msi.ps1'
+      - 'tools/windows-arm64/msi-fixture.py'
       - 'windows/**'
 
 permissions:
@@ -45,4 +46,36 @@ jobs:
         with:
           name: windows-x64-package-validation
           path: package-results
+          if-no-files-found: error
+
+  arm64-msi-fixture:
+    runs-on: windows-11-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Download pinned WiX binaries without installing them
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Invoke-WebRequest 'https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip' -OutFile wix.zip
+          if ((Get-FileHash wix.zip -Algorithm SHA256).Hash -ne '6ac824e1642d6f7277d0ed7ea09411a508f6116ba6fae0aa5f2c7daa2ff43d31') {
+            throw 'WiX checksum mismatch'
+          }
+          Expand-Archive wix.zip wix
+      - name: Compile native ARM64 fixture and link the real WiX authoring
+        shell: pwsh
+        run: |
+          python tools/windows-arm64/msi-fixture.py --wix-bin wix --output fixture-results
+          if ($LASTEXITCODE -ne 0) { throw 'ARM64 fixture packaging failed' }
+      - name: Verify ARM64 MSI metadata, native payload, and uninstall
+        shell: pwsh
+        run: |
+          ./tools/windows-arm64/verify-msi.ps1 -MsiPath fixture-results/arm64-fixture.msi -Architecture arm64 -ReportDirectory fixture-results -PayloadKind Arm64Fixture
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: windows-arm64-msi-fixture-not-pandoc
+          path: fixture-results
           if-no-files-found: error
